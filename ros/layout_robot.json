@@ -1,0 +1,81 @@
+{
+  "configById": {
+    "3D!robot4wd": {
+      "cameraState": {
+        "perspective": false,
+        "distance": 6,
+        "phi": 0.1,
+        "thetaOffset": 0,
+        "targetOffset": [
+          0,
+          0,
+          0
+        ],
+        "target": [
+          0,
+          0,
+          0
+        ],
+        "targetOrientation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "fovy": 45,
+        "near": 0.5,
+        "far": 5000
+      },
+      "followMode": "follow-position",
+      "followTf": "base_link",
+      "scene": {
+        "enableStats": false
+      },
+      "transforms": {},
+      "topics": {
+        "/map": {
+          "visible": true,
+          "colorMode": "custom",
+          "minColor": "#ffffff",
+          "maxColor": "#000000",
+          "unknownColor": "#80808080"
+        },
+        "/scan": {
+          "visible": true,
+          "colorField": "intensity",
+          "colorMode": "flat",
+          "flatColor": "#ff4040",
+          "pointSize": 3
+        },
+        "/odom": {
+          "visible": true,
+          "type": "arrow",
+          "arrowScale": [
+            0.4,
+            0.12,
+            0.12
+          ],
+          "color": "#2080ffff",
+          "history": 50
+        }
+      },
+      "layers": {
+        "grid1": {
+          "layerId": "foxglove.Grid",
+          "visible": true,
+          "frameId": "map",
+          "size": 20,
+          "divisions": 20,
+          "label": "Grid"
+        }
+      },
+      "publish": {}
+    }
+  },
+  "globalVariables": {},
+  "userNodes": {},
+  "playbackConfig": {
+    "speed": 1
+  },
+  "layout": "3D!robot4wd"
+}
