@@ -1,0 +1,13 @@
+[Unit]
+Description=Teleop robot 4WD (mando Xbox360 -> Arduino Due)
+After=multi-user.target
+
+[Service]
+Type=simple
+User=felipe
+ExecStart=/usr/bin/python3 /home/felipe/teleop/teleop.py
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

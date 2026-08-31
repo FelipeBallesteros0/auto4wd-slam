@@ -1,0 +1,168 @@
+/*
+ * teleop_due.ino — Robot 4WD (RPi manda por serial, Due ejecuta)
+ * Protocolo (115200, línea terminada en \n):
+ *   RPi -> Due:  "V <izq> <der>"  PWM con signo -255..255 por lado
+ *                "S"              stop inmediato
+ *   Due -> RPi:  "T <fl> <rl> <fr> <rr>"  posiciones de encoder (x4, adelante=+) cada 100 ms
+ *                "R listo"        al arrancar
+ * Watchdog: sin comando válido por 300 ms => motores a cero.
+ * IMU MPU-9250 (I2C 20/21, 3.3V): gyro Z -> rumbo integrado (yaw). Telemetría:
+ *   "T <fl> <rl> <fr> <rr> <yaw_mrad> <gz_mrad_s>"  (los 2 últimos solo si IMU OK)
+ * Convención confirmada 2026-08-30: ADELANTE = PWM en el 2º pin del par; encoder adelante=+.
+ * M1(5,6)=del.izq  M2(7,8)=tras.izq  M3(9,10)=del.der  M4(11,12)=tras.der
+ * Encoders: M1↔E4(28,29)  M2↔E3(26,27)  M3↔E2(24,25)  M4↔E1(22,23)
+ */
+#include <Wire.h>
+const uint8_t MPIN[4][2] = {{5,6},{7,8},{9,10},{11,12}};   // {atras, adelante}
+const uint8_t EPIN[4][2] = {{22,23},{24,25},{26,27},{28,29}};
+const int8_t  ENC_DE_MOTOR[4] = {3, 2, 1, 0};              // M1->E4, M2->E3, M3->E2, M4->E1
+
+volatile long quadPos[4]; volatile uint8_t encPrev[4];
+const int8_t QDEC[4][4]={{0,+1,-1,0},{-1,0,0,+1},{+1,0,0,-1},{0,-1,+1,0}};
+inline void handle(uint8_t k){
+  uint8_t a=digitalRead(EPIN[k][0]), b=digitalRead(EPIN[k][1]);
+  uint8_t s=(a<<1)|b; quadPos[k]-=QDEC[encPrev[k]][s]; encPrev[k]=s;  // adelante = +
+}
+void isr0(){handle(0);} void isr1(){handle(1);} void isr2(){handle(2);} void isr3(){handle(3);}
+void (*ISRS[4])()={isr0,isr1,isr2,isr3};
+
+void motorSet(uint8_t m,int spd){          // + = adelante
+  spd=constrain(spd,-255,255);
+  if(spd>=0){ analogWrite(MPIN[m][1],spd); analogWrite(MPIN[m][0],0); }
+  else      { analogWrite(MPIN[m][1],0);   analogWrite(MPIN[m][0],-spd); }
+}
+void allStop(){ for(uint8_t m=0;m<4;m++) motorSet(m,0); }
+
+unsigned long lastCmd=0, lastTel=0, lastBlink=0;
+int curL=0, curR=0; bool moving=false;
+char line[40]; uint8_t ll=0;
+
+// ---------- IMU MPU-9250 ----------
+const uint8_t IMU_ADDRS[2] = {0x68, 0x69};
+uint8_t imuAddr=0; bool imuOk=false; uint8_t imuWho=0;
+float gzBias=0.0f;               // LSB
+volatile float yawRad=0.0f;      // rumbo integrado
+float gzRad=0.0f;                // velocidad angular actual (rad/s)
+unsigned long imuLastUs=0, imuStillMs=0, imuRetryMs=0;
+uint16_t imuNanSeguidas=0;
+const float GYRO_LSB_DPS = 131.0f;   // ±250 dps
+
+bool imuWrite(uint8_t reg, uint8_t val){
+  Wire.beginTransmission(imuAddr); Wire.write(reg); Wire.write(val);
+  return Wire.endTransmission()==0;
+}
+bool imuRead(uint8_t reg, uint8_t n, uint8_t*buf){
+  Wire.beginTransmission(imuAddr); Wire.write(reg);
+  if(Wire.endTransmission(false)!=0) return false;
+  if(Wire.requestFrom((int)imuAddr,(int)n)!=n) return false;
+  for(uint8_t i=0;i<n;i++) buf[i]=Wire.read();
+  return true;
+}
+bool imuInit(){
+  Wire.begin(); Wire.setClock(400000);
+  for(uint8_t k=0;k<2;k++){
+    imuAddr=IMU_ADDRS[k]; uint8_t who=0;
+    if(imuRead(0x75,1,&who) && who!=0x00 && who!=0xFF){
+      imuWho=who;
+      imuWrite(0x6B,0x01);      // reloj PLL, salir de sleep
+      delay(50);
+      imuWrite(0x1A,0x03);      // DLPF 41 Hz
+      imuWrite(0x1B,0x00);      // gyro ±250 dps
+      imuWrite(0x19,0x04);      // 200 Hz
+      return true;
+    }
+  }
+  return false;
+}
+float imuReadGzLSB(){ uint8_t b[2]; if(!imuRead(0x47,2,b)) return NAN;
+  return (float)((int16_t)((b[0]<<8)|b[1])); }
+void imuCalibrate(){             // robot quieto ~2 s
+  float acc=0; int n=0;
+  for(int i=0;i<200;i++){ float v=imuReadGzLSB(); if(!isnan(v)){acc+=v;n++;} delay(10); }
+  if(n>50) gzBias=acc/n;
+}
+void imuUpdate(){
+  if(!imuOk){
+    // reintento en caliente cada 5 s, SOLO con motores quietos (la calibración exige reposo)
+    if(millis()-imuRetryMs>20000 && curL==0 && curR==0){
+      imuRetryMs=millis();
+      if(imuInit()){ delay(300); imuCalibrate(); imuLastUs=micros(); imuNanSeguidas=0; imuOk=true;
+        Serial.print(F("R IMU=OK 0x")); Serial.print(imuWho,HEX); Serial.println(F(" (hotplug)")); }
+    }
+    return;
+  }
+  float v=imuReadGzLSB(); unsigned long nowUs=micros();
+  if(isnan(v)){
+    if(++imuNanSeguidas>100){ imuOk=false; imuRetryMs=millis();
+      Serial.println(F("R IMU=CAIDO (vuelvo a encoders)")); }
+    return;
+  }
+  imuNanSeguidas=0;
+  float dt=(nowUs-imuLastUs)/1e6f; imuLastUs=nowUs;
+  if(dt<=0 || dt>0.2f) return;
+  float gzDps=-(v-gzBias)/GYRO_LSB_DPS;   // signo invertido: modulo montado con Z hacia abajo (validado 2026-08-30)
+  gzRad=gzDps*0.0174533f;
+  yawRad+=gzRad*dt;
+  // re-cero lento del sesgo con robot quieto y giro casi nulo
+  if(curL==0 && curR==0 && fabs(gzDps)<1.0f){
+    if(imuStillMs==0) imuStillMs=millis();
+    else if(millis()-imuStillMs>3000) gzBias=0.999f*gzBias+0.001f*v;
+  } else imuStillMs=0;
+}
+
+
+void applyLR(int l,int r){
+  curL=l; curR=r; moving=(l!=0||r!=0);
+  motorSet(0,l); motorSet(1,l);   // izquierda: M1 M2
+  motorSet(2,r); motorSet(3,r);   // derecha:  M3 M4
+}
+void procLine(){
+  line[ll]=0;
+  if(line[0]=='V'){
+    int l,r;
+    if(sscanf(line,"V %d %d",&l,&r)==2){ applyLR(l,r); lastCmd=millis(); }
+  } else if(line[0]=='S'){ applyLR(0,0); lastCmd=millis(); }
+  ll=0;
+}
+void setup(){
+  Serial.begin(115200);
+  for(uint8_t m=0;m<4;m++){ pinMode(MPIN[m][0],OUTPUT); pinMode(MPIN[m][1],OUTPUT); }
+  allStop(); pinMode(13,OUTPUT);
+  for(uint8_t k=0;k<4;k++){
+    pinMode(EPIN[k][0],INPUT_PULLUP); pinMode(EPIN[k][1],INPUT_PULLUP);
+    encPrev[k]=(digitalRead(EPIN[k][0])<<1)|digitalRead(EPIN[k][1]);
+    attachInterrupt(digitalPinToInterrupt(EPIN[k][0]),ISRS[k],CHANGE);
+    attachInterrupt(digitalPinToInterrupt(EPIN[k][1]),ISRS[k],CHANGE);
+  }
+  imuOk=imuInit();
+  if(imuOk){ delay(800); imuCalibrate(); imuLastUs=micros(); }
+  delay(300);
+  Serial.print(F("R listo IMU="));
+  if(imuOk){ Serial.print(F("OK 0x")); Serial.println(imuWho,HEX); }
+  else Serial.println(F("NO"));
+}
+void loop(){
+  while(Serial.available()){
+    char c=Serial.read();
+    if(c=='\n'||c=='\r'){ if(ll) procLine(); }
+    else if(ll<sizeof(line)-1) line[ll++]=c;
+  }
+  unsigned long now=millis();
+  imuUpdate();
+  if(moving && now-lastCmd>300) applyLR(0,0);            // watchdog
+  if(now-lastTel>=100){                                  // telemetría 10 Hz
+    lastTel=now; long q[4];
+    noInterrupts(); for(int k=0;k<4;k++) q[k]=quadPos[k]; interrupts();
+    char b[110];
+    if(imuOk)
+      snprintf(b,sizeof(b),"T %ld %ld %ld %ld %ld %ld",
+        q[ENC_DE_MOTOR[0]], q[ENC_DE_MOTOR[1]], q[ENC_DE_MOTOR[2]], q[ENC_DE_MOTOR[3]],
+        (long)(yawRad*1000.0f), (long)(gzRad*1000.0f));
+    else
+      snprintf(b,sizeof(b),"T %ld %ld %ld %ld",
+        q[ENC_DE_MOTOR[0]], q[ENC_DE_MOTOR[1]], q[ENC_DE_MOTOR[2]], q[ENC_DE_MOTOR[3]]);
+    Serial.println(b);
+  }
+  unsigned long per = moving?150:800;                    // LED: rápido si se mueve
+  if(now-lastBlink>=per){ lastBlink=now; digitalWrite(13,!digitalRead(13)); }
+}
