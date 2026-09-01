@@ -1,0 +1,19 @@
+network:
+  version: 2
+  ethernets:
+    eth0:
+      dhcp4: true
+      dhcp6: true
+      optional: true
+  wifis:
+    wlan0:
+      dhcp4: true
+      regulatory-domain: "CL"
+      access-points:
+        "TU_RED_5GHZ":
+          password: "TU_CLAVE_WIFI"
+        "TU_RED_24GHZ":
+          password: "TU_CLAVE_WIFI"
+        "felipe":
+          password: "TU_CLAVE_WIFI"
+      optional: true

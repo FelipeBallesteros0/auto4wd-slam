@@ -1,0 +1,25 @@
+network:
+  version: 2
+  ethernets:
+    eth0:
+      optional: true
+      dhcp4: true
+      dhcp6: true
+  wifis:
+    wlan0:
+      optional: true
+      dhcp4: true
+      regulatory-domain: "CL"
+      access-points:
+        "TU_RED_5GHZ":
+          auth:
+            key-management: "psk"
+            password: "TU_CLAVE_WIFI"
+        "TU_RED_24GHZ":
+          auth:
+            key-management: "psk"
+            password: "TU_CLAVE_WIFI"
+        "felipe":
+          auth:
+            key-management: "psk"
+            password: "TU_CLAVE_WIFI"
