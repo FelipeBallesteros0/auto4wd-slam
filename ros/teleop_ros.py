@@ -15,7 +15,11 @@ import serial as pyserial
 WHEEL_D  = 0.065          # m
 TRACK    = 0.215          # m entre lados izq-der
 TICKS_PER_REV = 994.0     # calibrado 2026-08-30: 1 vuelta a mano = 994 cuentas x4
-M_PER_TICK = math.pi * WHEEL_D / TICKS_PER_REV
+# Calibración empírica 2026-09-01: 3 corridas de 2,10 m con huincha, decodificador
+# por muestreo 20 kHz (cero pérdida de flancos) y trayecto recto (gyro 0,1°):
+# los encoders daban -7,2%. Escala medida = 1.0773 (equivale a Ø efectivo 70,0 mm).
+CAL_ESCALA = 1.0773
+M_PER_TICK = math.pi * WHEEL_D / TICKS_PER_REV * CAL_ESCALA
 LASER_XY_YAW = (0.0, 0.0, 0.10, 0.0)   # x, y, z, yaw del lidar respecto a base_link
 
 # ---- mando ----

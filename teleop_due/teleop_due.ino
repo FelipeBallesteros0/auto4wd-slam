@@ -18,13 +18,32 @@ const uint8_t EPIN[4][2] = {{22,23},{24,25},{26,27},{28,29}};
 const int8_t  ENC_DE_MOTOR[4] = {3, 2, 1, 0};              // M1->E4, M2->E3, M3->E2, M4->E1
 
 volatile long quadPos[4]; volatile uint8_t encPrev[4];
+// Lectura DIRECTA de puertos en la ISR: digitalRead era tan lento que a velocidad
+// de marcha se perdían flancos (~10% de subconteo, test huincha 2026-09-01).
+Pio* encPort[4][2]; uint32_t encMask[4][2];
 const int8_t QDEC[4][4]={{0,+1,-1,0},{-1,0,0,+1},{+1,0,0,-1},{0,-1,+1,0}};
-inline void handle(uint8_t k){
-  uint8_t a=digitalRead(EPIN[k][0]), b=digitalRead(EPIN[k][1]);
-  uint8_t s=(a<<1)|b; quadPos[k]-=QDEC[encPrev[k]][s]; encPrev[k]=s;  // adelante = +
+// Decodificación por MUESTREO a 20 kHz (timer TC0): las interrupciones por flanco
+// del Due pierden cuentas a velocidad (−10% bruto, −7.8% con ISR rápida; test
+// huincha 2026-09-01). Muestreando a 20 kHz (flancos máx ~3 kHz/canal) no se
+// pierde ninguno, a cualquier velocidad.
+void encTimerSetup(){
+  pmc_set_writeprotect(false);
+  pmc_enable_periph_clk(ID_TC0);
+  TC_Configure(TC0,0, TC_CMR_WAVE|TC_CMR_WAVSEL_UP_RC|TC_CMR_TCCLKS_TIMER_CLOCK2); // MCK/8=10.5MHz
+  TC_SetRC(TC0,0, 525);                                    // 10.5e6/525 = 20 kHz
+  TC0->TC_CHANNEL[0].TC_IER=TC_IER_CPCS;
+  TC0->TC_CHANNEL[0].TC_IDR=~TC_IER_CPCS;
+  NVIC_EnableIRQ(TC0_IRQn);
+  TC_Start(TC0,0);
 }
-void isr0(){handle(0);} void isr1(){handle(1);} void isr2(){handle(2);} void isr3(){handle(3);}
-void (*ISRS[4])()={isr0,isr1,isr2,isr3};
+void TC0_Handler(){
+  TC_GetStatus(TC0,0);
+  for(uint8_t k=0;k<4;k++){
+    uint8_t a=(encPort[k][0]->PIO_PDSR & encMask[k][0])?1:0;
+    uint8_t b=(encPort[k][1]->PIO_PDSR & encMask[k][1])?1:0;
+    uint8_t st=(a<<1)|b; quadPos[k]-=QDEC[encPrev[k]][st]; encPrev[k]=st;  // adelante = +
+  }
+}
 
 void motorSet(uint8_t m,int spd){          // + = adelante
   spd=constrain(spd,-255,255);
@@ -130,10 +149,13 @@ void setup(){
   allStop(); pinMode(13,OUTPUT);
   for(uint8_t k=0;k<4;k++){
     pinMode(EPIN[k][0],INPUT_PULLUP); pinMode(EPIN[k][1],INPUT_PULLUP);
+    for(uint8_t c=0;c<2;c++){
+      encPort[k][c]=g_APinDescription[EPIN[k][c]].pPort;
+      encMask[k][c]=g_APinDescription[EPIN[k][c]].ulPin;
+    }
     encPrev[k]=(digitalRead(EPIN[k][0])<<1)|digitalRead(EPIN[k][1]);
-    attachInterrupt(digitalPinToInterrupt(EPIN[k][0]),ISRS[k],CHANGE);
-    attachInterrupt(digitalPinToInterrupt(EPIN[k][1]),ISRS[k],CHANGE);
   }
+  encTimerSetup();
   imuOk=imuInit();
   if(imuOk){ delay(800); imuCalibrate(); imuLastUs=micros(); }
   delay(300);
