@@ -19,7 +19,7 @@ network:
           auth:
             key-management: "psk"
             password: "TU_CLAVE_WIFI"
-        "felipe":
+        "Felipe":
           auth:
             key-management: "psk"
             password: "TU_CLAVE_WIFI"

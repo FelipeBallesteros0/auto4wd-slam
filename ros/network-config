@@ -14,6 +14,6 @@ network:
           password: "TU_CLAVE_WIFI"
         "TU_RED_24GHZ":
           password: "TU_CLAVE_WIFI"
-        "felipe":
+        "Felipe":
           password: "TU_CLAVE_WIFI"
       optional: true
