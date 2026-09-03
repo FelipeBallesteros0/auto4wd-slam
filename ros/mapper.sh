@@ -3,6 +3,11 @@ trap 'kill 0' EXIT
 source /opt/ros/jazzy/setup.bash
 # Todo el grafo ROS vive en la Pi; Foxglove entra por websocket :8765, no por DDS.
 export ROS_LOCALHOST_ONLY=1
+# CycloneDDS en vez de FastDDS: el descubrimiento de FastDDS en loopback fallaba
+# con los suscriptores que llegan tarde (CLI y foxglove_bridge no recibían /tf;
+# 2026-09-03). CycloneDDS descubre en localhost de forma fiable.
+export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+export CYCLONEDDS_URI='<CycloneDDS><Domain><General><Interfaces><NetworkInterface name="lo" presence_required="false"/></Interfaces><AllowMulticast>true</AllowMulticast></General></Domain></CycloneDDS>'
 # Memoria compartida (default de FastDDS): en UNA sola máquina descubre a los que
 # llegan tarde MUCHO mejor que UDPv4-loopback (con UDPv4 el foxglove_bridge perdía
 # la carrera de arranque y quedaba sin recibir nada -> Foxglove veía canales pero
@@ -19,10 +24,19 @@ ros2 run slam_toolbox async_slam_toolbox_node --ros-args --params-file /home/fel
 
 # 2) Activar slam (transiciones EN LINEA: en background wait -n las contaría como
 #    proceso muerto y reiniciaría todo en bucle, bug 2026-08-30)
-sleep 12
-for i in 1 2 3; do ros2 lifecycle set /slam_toolbox configure && break; sleep 4; done
-sleep 2
-for i in 1 2 3; do ros2 lifecycle set /slam_toolbox activate && break; sleep 4; done
+sleep 14
+# Activar slam con reintentos HASTA que quede 'active' (con CycloneDDS el
+# descubrimiento en el arranque puede tardar; 3 intentos no bastaban — 2026-09-03)
+for i in $(seq 1 15); do
+  ros2 lifecycle set /slam_toolbox configure >/dev/null 2>&1
+  sleep 2
+  ros2 lifecycle set /slam_toolbox activate >/dev/null 2>&1
+  sleep 2
+  estado=$(ros2 lifecycle get /slam_toolbox 2>/dev/null | head -1)
+  echo "[mapper] slam estado: $estado (intento $i)"
+  echo "$estado" | grep -q active && break
+  sleep 3
+done
 
 # 3) foxglove_bridge AL FINAL: con el grafo ya formado y estable descubre todos
 #    los publicadores (map, scan, odom, tf) y los reenvía al notebook.
