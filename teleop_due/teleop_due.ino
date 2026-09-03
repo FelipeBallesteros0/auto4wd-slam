@@ -62,7 +62,7 @@ uint8_t imuAddr=0; bool imuOk=false; uint8_t imuWho=0;
 float gzBias=0.0f;               // LSB
 volatile float yawRad=0.0f;      // rumbo integrado
 float gzRad=0.0f;                // velocidad angular actual (rad/s)
-unsigned long imuLastUs=0, imuStillMs=0, imuRetryMs=0;
+unsigned long imuLastUs=0, imuStillMs=0, imuRetryMs=0, imuDownMs=0;
 uint16_t imuNanSeguidas=0;
 const float GYRO_LSB_DPS = 131.0f;   // ±250 dps
 
@@ -102,17 +102,24 @@ void imuCalibrate(){             // robot quieto ~2 s
 }
 void imuUpdate(){
   if(!imuOk){
-    // reintento en caliente cada 5 s, SOLO con motores quietos (la calibración exige reposo)
-    if(millis()-imuRetryMs>20000 && curL==0 && curR==0){
+    // reintento en caliente cada 5 s. NO recalibrar: conserva el sesgo bueno del
+    // arranque (recalibrar aquí, con el módulo posiblemente manipulado/en movimiento,
+    // metía deriva — visto 2026-09-03). Solo recalibra si lleva >30 s caído Y quieto.
+    if(millis()-imuRetryMs>5000){
       imuRetryMs=millis();
-      if(imuInit()){ delay(300); imuCalibrate(); imuLastUs=micros(); imuNanSeguidas=0; imuOk=true;
-        Serial.print(F("R IMU=OK 0x")); Serial.print(imuWho,HEX); Serial.println(F(" (hotplug)")); }
+      if(imuInit()){
+        bool recalibrar = (millis()-imuDownMs>30000) && curL==0 && curR==0;
+        if(recalibrar){ delay(300); imuCalibrate(); }
+        imuLastUs=micros(); imuNanSeguidas=0; imuOk=true;
+        Serial.print(F("R IMU=OK 0x")); Serial.print(imuWho,HEX);
+        Serial.println(recalibrar?F(" (hotplug+recal)"):F(" (hotplug)"));
+      }
     }
     return;
   }
   float v=imuReadGzLSB(); unsigned long nowUs=micros();
   if(isnan(v)){
-    if(++imuNanSeguidas>100){ imuOk=false; imuRetryMs=millis();
+    if(++imuNanSeguidas>100){ imuOk=false; imuRetryMs=millis(); imuDownMs=millis();
       Serial.println(F("R IMU=CAIDO (vuelvo a encoders)")); }
     return;
   }

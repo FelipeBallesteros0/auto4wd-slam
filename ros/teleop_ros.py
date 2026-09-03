@@ -133,6 +133,16 @@ class TeleopOdom(Node):
             ("%d"%int(yaw_imu*1000)) if yaw_imu is not None else "x",
             ("%d"%int(self.gz*1000)) if self.imu_seen else "x")
         self.pub_ruedas.publish(m)
+        # Log de diagnóstico directo a archivo si existe /tmp/GIRO_ON (sin DDS,
+        # evita el problema de descubrimiento de nodos recién llegados).
+        if self.dbg_ruedas%3==0:
+            try:
+                import os
+                if os.path.exists("/tmp/GIRO_ON"):
+                    with open("/tmp/giro.log","a") as f:
+                        f.write("%s %s %s\n" % (time.strftime("%H:%M:%S"), m.data,
+                                                "OK" if yaw_imu is not None else "NO"))
+            except Exception: pass
         self.dbg_ruedas+=1
         if self.dbg_ruedas%100==0:
             self.get_logger().info("dbg: ruedas=%d odom=%d dt_skip=%d base=%d" %
@@ -149,8 +159,13 @@ class TeleopOdom(Node):
         if yaw_imu is not None:                      # gyro: rotación real (skid-steer patina)
             if self.last_yaw is None: self.last_yaw=yaw_imu
             dth=yaw_imu-self.last_yaw; self.last_yaw=yaw_imu
+        elif self.imu_seen:
+            # IMU visto antes pero caído ahora (jumper flaky): MANTENER el rumbo
+            # (dth=0) en vez de caer a encoders-basura del skid-steer. Una micro-caída
+            # así no rompe el mapa; al reconectar el yaw absoluto retoma sin salto.
+            dth=0.0
         else:
-            dth=(dr-dl)/TRACK
+            dth=(dr-dl)/TRACK                        # sin IMU nunca: encoders (peor, pero es lo que hay)
         self.x+=d*math.cos(self.th+dth/2.0); self.y+=d*math.sin(self.th+dth/2.0); self.th+=dth
         o=Odometry(); o.header.stamp=now.to_msg(); o.header.frame_id="odom"; o.child_frame_id="base_link"
         o.pose.pose.position.x=self.x; o.pose.pose.position.y=self.y
