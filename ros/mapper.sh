@@ -15,9 +15,20 @@ export CYCLONEDDS_URI='<CycloneDDS><Domain><General><Interfaces><NetworkInterfac
 rm -f /dev/shm/fastrtps_* /dev/shm/fast_datasharing_* 2>/dev/null
 
 # 1) Publicadores primero (lidar con reintentos, odometría, slam)
-( for i in 1 2 3 4 5; do
-    ros2 run rplidar_ros rplidar_composition --ros-args -p serial_port:=/dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_0001-if00-port0 -p serial_baudrate:=115200 -p frame_id:=laser -p angle_compensate:=true
+LIDAR_PORT=/dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_0001-if00-port0
+( i=0; while true; do i=$((i+1))
+    ros2 run rplidar_ros rplidar_composition --ros-args -p serial_port:=$LIDAR_PORT -p serial_baudrate:=115200 -p frame_id:=laser -p angle_compensate:=true
     echo "[mapper] rplidar salió (intento $i), reintento en 3 s..."; sleep 3
+  done ) &
+# Vigilante del lidar (2026-09-06): tras un reinicio del servicio el nodo rplidar arranca
+# ("RPLIDAR running") pero se queda colgado sin publicar /scan y sin atender servicios.
+# Si en 25 s no hay scan, se mata al proceso que tiene el puerto y el bucle lo relanza.
+( sleep 25
+  while true; do
+    if ! timeout 8 ros2 topic echo /scan --once --field header.frame_id >/dev/null 2>&1; then
+      echo "[mapper] sin /scan: relanzo rplidar"; fuser -k -KILL $LIDAR_PORT >/dev/null 2>&1; sleep 20
+    fi
+    sleep 10
   done ) &
 python3 /home/felipe/teleop/teleop_ros.py &
 ros2 run slam_toolbox async_slam_toolbox_node --ros-args --params-file /home/felipe/teleop/slam_params.yaml &
