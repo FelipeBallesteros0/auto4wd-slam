@@ -83,7 +83,7 @@ bool imuRead(uint8_t reg, uint8_t n, uint8_t*buf){
   return true;
 }
 bool imuInit(){
-  Wire.begin(); Wire.setClock(400000);
+  Wire.begin(); Wire.setClock(100000);   // 100 kHz: cables I2C de ~50 cm, 400 kHz era marginal (2026-09-06)
   for(uint8_t k=0;k<2;k++){
     imuAddr=IMU_ADDRS[k]; uint8_t who=0;
     if(imuRead(0x75,1,&who) && who!=0x00 && who!=0xFF){
