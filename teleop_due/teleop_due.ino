@@ -70,7 +70,7 @@ float gzRad=0.0f;                // velocidad angular actual (rad/s)
 unsigned long imuLastUs=0, imuStillMs=0, imuRetryMs=0, imuDownMs=0, imuReadUs=0;
 uint16_t imuNanSeguidas=0, imuCaidas=0;
 const unsigned long IMU_PERIODO_US=5000;    // 200 Hz = tasa de muestreo del MPU; leer más rápido solo ocupa el bus
-const unsigned long IMU_REINTENTO_MS=250;   // reintento rápido: un hueco corto no rompe el mapa, uno de 5 s sí
+const unsigned long IMU_REINTENTO_MS=50;    // reintento rápido: si el chip se reinició tarda ~100 ms en volver; un hueco corto no rompe el mapa
 const float GYRO_LSB_DPS = 131.0f;   // ±250 dps
 
 bool imuWrite(uint8_t reg, uint8_t val){
@@ -101,6 +101,9 @@ bool imuInit(){
     imuAddr=IMU_ADDRS[k]; uint8_t who=0;
     if(imuRead(0x75,1,&who) && who!=0x00 && who!=0xFF){
       imuWho=who;
+      // Si solo se colgó el bus (no se reinició el chip), PWR_MGMT_1 sigue en 0x01: nada que
+      // reconfigurar, y la recuperación tarda ~1 ms en vez de 50 (2026-09-06).
+      uint8_t pm=0xFF; if(imuRead(0x6B,1,&pm) && pm==0x01) return true;
       imuWrite(0x6B,0x01);      // reloj PLL, salir de sleep
       delay(50);
       imuWrite(0x1A,0x03);      // DLPF 41 Hz
@@ -142,7 +145,7 @@ void imuUpdate(){
   imuReadUs=nowUs;
   float v=imuReadGzLSB(); nowUs=micros();
   if(isnan(v)){
-    if(++imuNanSeguidas>=5){ imuOk=false; imuRetryMs=0; imuDownMs=millis(); imuCaidas++;
+    if(++imuNanSeguidas>=3){ imuOk=false; imuRetryMs=0; imuDownMs=millis(); imuCaidas++;
       Serial.print(F("R IMU=CAIDO #")); Serial.print(imuCaidas); Serial.println(F(" (mantengo rumbo, reintento)")); }
     return;
   }
