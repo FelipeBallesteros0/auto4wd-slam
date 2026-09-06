@@ -131,7 +131,7 @@ void imuUpdate(){
   imuNanSeguidas=0;
   float dt=(nowUs-imuLastUs)/1e6f; imuLastUs=nowUs;
   if(dt<=0 || dt>0.2f) return;
-  float gzDps=-(v-gzBias)/GYRO_LSB_DPS;   // signo invertido: modulo montado con Z hacia abajo (validado 2026-08-30)
+  float gzDps=(v-gzBias)/GYRO_LSB_DPS;    // sin invertir: modulo nuevo montado con Z hacia ARRIBA (giro 90° izq = +1571 mrad, validado 2026-09-06)
   gzRad=gzDps*0.0174533f;
   yawRad+=gzRad*dt;
   // re-cero lento del sesgo con robot quieto y giro casi nulo
