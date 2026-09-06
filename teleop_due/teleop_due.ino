@@ -94,7 +94,17 @@ void i2cRecuperar(){
   pinMode(20,OUTPUT); digitalWrite(20,LOW); delayMicroseconds(10); digitalWrite(21,HIGH); delayMicroseconds(10);
   pinMode(20,INPUT_PULLUP); delayMicroseconds(10); pinMode(20,INPUT); pinMode(21,INPUT);
 }
+// Nivel real de SDA/SCL (PIO_PDSR funciona aunque el pin esté en modo periférico). Con el bus
+// trabado en bajo, cada transacción de Wire tarda ~100 ms en agotar su timeout: 3 lecturas
+// fallidas = 300 ms a ciegas (huecos de 337-400 ms medidos 2026-09-06). Mirando el nivel
+// antes de hablar se detecta el trabón en <5 ms y no se hace ninguna transacción condenada.
+bool i2cLibre(){
+  return (g_APinDescription[20].pPort->PIO_PDSR & g_APinDescription[20].ulPin) &&
+         (g_APinDescription[21].pPort->PIO_PDSR & g_APinDescription[21].ulPin);
+}
 bool imuInit(){
+  for(uint8_t k=0;k<5 && !i2cLibre();k++) i2cRecuperar();
+  if(!i2cLibre()) return false;            // sigue trabado: reintento en 50 ms, sin gastar timeouts
   i2cRecuperar();
   Wire.begin(); Wire.setClock(100000);   // 100 kHz: cables I2C de ~50 cm, 400 kHz era marginal (2026-09-06)
   for(uint8_t k=0;k<2;k++){
@@ -143,7 +153,9 @@ void imuUpdate(){
   }
   if(nowUs-imuReadUs<IMU_PERIODO_US) return;   // 200 Hz: el bus queda libre el 98% del tiempo
   imuReadUs=nowUs;
-  float v=imuReadGzLSB(); nowUs=micros();
+  float v=NAN;
+  if(i2cLibre()) v=imuReadGzLSB(); else imuNanSeguidas=2;   // bus trabado: caída inmediata, sin timeout
+  nowUs=micros();
   if(isnan(v)){
     if(++imuNanSeguidas>=3){ imuOk=false; imuRetryMs=0; imuDownMs=millis(); imuCaidas++;
       Serial.print(F("R IMU=CAIDO #")); Serial.print(imuCaidas); Serial.println(F(" (mantengo rumbo, reintento)")); }
