@@ -24,6 +24,30 @@ void addr(String&r,const char*tag,TwoWire&w){
   uint8_t who;
   for(uint8_t a=0x68;a<=0x69;a++) if(probe(w,a,&who)){ r+=" "; r+=tag; r+=":0x"; r+=String(a,HEX); r+=" WHO=0x"; r+=String(who,HEX); }
 }
+// ¿Puede el Due mover físicamente cada pin? (driver dañado = no baja a 0)
+void testDrive(uint8_t p, char*out){
+  pinMode(p,OUTPUT); digitalWrite(p,LOW); delayMicroseconds(50); int a=digitalRead(p);
+  digitalWrite(p,HIGH); delayMicroseconds(50); int b=digitalRead(p);
+  pinMode(p,INPUT); delayMicroseconds(300); int c=digitalRead(p);
+  sprintf(out,"pin%d: bajo=%d alto=%d suelto=%d%s", p,a,b,c,(a==0&&b==1&&c==1)?" OK":" <-- RARO");
+}
+// ¿El bus responde rápido con NACK (bus vivo, nadie contesta) o se queda esperando (bus muerto)?
+void testWire(){
+  Wire.begin(); Wire.setClock(100000);
+  Wire.beginTransmission(0x68); unsigned long t0=micros(); uint8_t e=Wire.endTransmission(); unsigned long dt=micros()-t0;
+  Serial.print(F("  Wire 0x68: codigo=")); Serial.print(e); Serial.print(F(" en ")); Serial.print(dt); Serial.print(F(" us -> "));
+  if(e==0) Serial.println(F("RESPONDE"));
+  else if(dt<2000) Serial.println(F("NACK inmediato: el bus funciona, el modulo no contesta"));
+  else Serial.println(F("TIMEOUT: el bus no se mueve (SCL/SDA trabados o pin danado)"));
+}
+// ¿SDA y SCL están puenteados entre sí (soldadura)? Bajo uno y miro el otro.
+void testPuente(){
+  pinMode(21,INPUT); pinMode(20,OUTPUT); digitalWrite(20,LOW); delayMicroseconds(100); int a=digitalRead(21);
+  pinMode(20,INPUT); pinMode(21,OUTPUT); digitalWrite(21,LOW); delayMicroseconds(100); int b=digitalRead(20);
+  pinMode(20,INPUT); pinMode(21,INPUT);
+  Serial.print(F("  puente SDA-SCL: bajo20->21=")); Serial.print(a); Serial.print(F(" bajo21->20=")); Serial.print(b);
+  Serial.println((a==1&&b==1)?F("  -> NO hay puente"):F("  -> ¡SDA y SCL UNIDOS! (soldadura)"));
+}
 void setup(){ Serial.begin(115200); delay(1500); Serial.println(F("== imu_diag ==")); }
 void loop(){
   for(int i=0;i<4;i++) pinMode(PINS[i],INPUT);
@@ -37,5 +61,7 @@ void loop(){
   snprintf(b,sizeof(b),"[%lus] alto%%: SDA20=%d SCL21=%d SDA1=%d SCL1=%d | IMU:%s",
     millis()/1000, n[0],n[1],n[2],n[3], r.length()?r.c_str():" (no responde)");
   Serial.println(b);
+  char t[64]; testDrive(20,t); Serial.print(F("  ")); Serial.print(t); testDrive(21,t); Serial.print(F(" | ")); Serial.println(t);
+  testWire(); testPuente();
   delay(1500);
 }
