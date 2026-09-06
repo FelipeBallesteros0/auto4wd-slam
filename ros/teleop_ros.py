@@ -54,6 +54,7 @@ class TeleopOdom(Node):
         self.last_ticks=None; self.last_t=None
         self.last_yaw=None; self.imu_seen=False; self.gz=0.0
         self.dbg_ruedas=0; self.dbg_odom=0; self.dbg_dt=0; self.dbg_base=0
+        self.auto_hasta=None; self.auto_cmd=(0,0)   # diagnóstico /tmp/AUTO_GIRO
         # Bucle en HILO PROPIO: los timers de rclpy en esta Pi dejaban de dispararse
         # esporádicamente (executor idle para siempre, visto con py-spy 2026-08-30,
         # con reloj de pared Y monótono). Un hilo simple no depende del executor.
@@ -193,6 +194,19 @@ class TeleopOdom(Node):
         self.read_js()
         if self.ser is None: return
         L,R=self.mix() if self.js is not None else (0,0)
+        # Diagnóstico: /tmp/AUTO_GIRO con "L R segundos" fuerza esos PWM durante ese tiempo
+        # (giro controlado sin mando, para probar el SLAM a velocidad conocida).
+        try:
+            if os.path.exists("/tmp/AUTO_GIRO"):
+                if self.auto_hasta is None:
+                    l,r,seg=open("/tmp/AUTO_GIRO").read().split()[:3]
+                    self.auto_cmd=(int(l),int(r)); self.auto_hasta=time.time()+float(seg)
+                    self.get_logger().info("AUTO_GIRO L=%s R=%s %ss" % (l,r,seg))
+                if time.time()<self.auto_hasta: L,R=self.auto_cmd
+                else:
+                    os.remove("/tmp/AUTO_GIRO"); self.auto_hasta=None; L,R=0,0
+                    self.get_logger().info("AUTO_GIRO fin")
+        except Exception: pass
         try:
             try:
                 os.write(self.ser.fd, b"V %d %d\n"%(L,R))
