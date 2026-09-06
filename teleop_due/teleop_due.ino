@@ -17,7 +17,6 @@
  *   tras.der   { 5,  6}                 (28,29)         −
  * ENC_SIGN compensa el espejo: los 4 encoders cuentan + al avanzar.
  */
-#include <Wire.h>
 const uint8_t MPIN[4][2] = {{12,11},{8,7},{9,10},{5,6}};   // {atras, adelante} por rueda
 const uint8_t EPIN[4][2] = {{22,23},{26,27},{24,25},{28,29}};
 const int8_t  ENC_SIGN[4] = {+1,+1,-1,-1};                 // adelante = + en los 4
@@ -68,45 +67,56 @@ float gzBias=0.0f;               // LSB
 volatile float yawRad=0.0f;      // rumbo integrado
 float gzRad=0.0f;                // velocidad angular actual (rad/s)
 unsigned long imuLastUs=0, imuStillMs=0, imuRetryMs=0, imuDownMs=0, imuReadUs=0;
-uint16_t imuNanSeguidas=0, imuCaidas=0;
+uint16_t imuNanSeguidas=0, imuCaidas=0; uint32_t imuGlitches=0;
 const unsigned long IMU_PERIODO_US=5000;    // 200 Hz = tasa de muestreo del MPU; leer más rápido solo ocupa el bus
 const unsigned long IMU_REINTENTO_MS=50;    // reintento rápido: si el chip se reinició tarda ~100 ms en volver; un hueco corto no rompe el mapa
 const float GYRO_LSB_DPS = 131.0f;   // ±250 dps
 
+// ---- I2C por SOFTWARE en 20/21 (2026-09-06) ----
+// La TWI por hardware del SAM3X se quedaba colgada tras un glitch: cada transacción agotaba
+// ~112 ms de timeout de la librería Wire (huecos de 115/337/397 ms = 1/3 timeouts) hasta
+// reiniciar el periférico. Bit-bang: ninguna espera al esclavo, un fallo se ve en ~100 us.
+// Pull-ups: los 1,5 k de la placa en 20/21. ~60-80 kHz efectivos.
+#define I2C_D delayMicroseconds(4)
+static inline void sdaRel(){ pinMode(20,INPUT); }
+static inline void sdaLo(){ pinMode(20,OUTPUT); digitalWrite(20,LOW); }
+static inline void sclRel(){ pinMode(21,INPUT); }
+static inline void sclLo(){ pinMode(21,OUTPUT); digitalWrite(21,LOW); }
+static inline uint8_t sdaIn(){ return (g_APinDescription[20].pPort->PIO_PDSR & g_APinDescription[20].ulPin)?1:0; }
+static inline uint8_t sclIn(){ return (g_APinDescription[21].pPort->PIO_PDSR & g_APinDescription[21].ulPin)?1:0; }
+void swStart(){ sdaRel(); sclRel(); I2C_D; sdaLo(); I2C_D; sclLo(); I2C_D; }
+void swStop(){ sdaLo(); I2C_D; sclRel(); I2C_D; sdaRel(); I2C_D; }
+bool swWrite(uint8_t b){
+  for(int i=7;i>=0;i--){ if(b&(1<<i)) sdaRel(); else sdaLo(); I2C_D; sclRel(); I2C_D; sclLo(); I2C_D; }
+  sdaRel(); I2C_D; sclRel(); I2C_D; bool ack=!sdaIn(); sclLo(); I2C_D; return ack;
+}
+uint8_t swRead(bool ack){
+  uint8_t v=0; sdaRel();
+  for(int i=7;i>=0;i--){ sclRel(); I2C_D; if(sdaIn()) v|=(1<<i); sclLo(); I2C_D; }
+  if(ack) sdaLo(); else sdaRel(); I2C_D; sclRel(); I2C_D; sclLo(); I2C_D; sdaRel(); return v;
+}
+bool i2cLibre(){ return sdaIn() && sclIn(); }
+// Recuperación: 10 pulsos de SCL con SDA suelto + STOP (resincroniza un esclavo a mitad de byte)
+void i2cRecuperar(){
+  sdaRel(); for(int i=0;i<10;i++){ sclLo(); delayMicroseconds(10); sclRel(); delayMicroseconds(10); }
+  swStop();
+}
 bool imuWrite(uint8_t reg, uint8_t val){
-  Wire.beginTransmission(imuAddr); Wire.write(reg); Wire.write(val);
-  return Wire.endTransmission()==0;
+  if(!i2cLibre()) return false;
+  swStart(); bool ok=swWrite(imuAddr<<1) && swWrite(reg) && swWrite(val); swStop(); return ok;
 }
 bool imuRead(uint8_t reg, uint8_t n, uint8_t*buf){
-  Wire.beginTransmission(imuAddr); Wire.write(reg);
-  if(Wire.endTransmission(false)!=0) return false;
-  if(Wire.requestFrom((int)imuAddr,(int)n)!=n) return false;
-  for(uint8_t i=0;i<n;i++) buf[i]=Wire.read();
-  return true;
-}
-// Recuperación del bus I2C (2026-09-06): un glitch en SDA/SCL (vibración, ruido de los motores en
-// cables de ~50 cm) deja al MPU a mitad de byte y desde ahí responde NACK a todo; Wire.begin() no
-// lo saca de ahí y el IMU quedaba "CAIDO" hasta apagar el robot. 10 pulsos de SCL con SDA suelto
-// + STOP lo resincronizan (comprobado con imu_diag).
-void i2cRecuperar(){
-  pinMode(20,INPUT_PULLUP); pinMode(21,OUTPUT);
-  for(int i=0;i<10;i++){ digitalWrite(21,LOW); delayMicroseconds(10); digitalWrite(21,HIGH); delayMicroseconds(10); }
-  pinMode(20,OUTPUT); digitalWrite(20,LOW); delayMicroseconds(10); digitalWrite(21,HIGH); delayMicroseconds(10);
-  pinMode(20,INPUT_PULLUP); delayMicroseconds(10); pinMode(20,INPUT); pinMode(21,INPUT);
-}
-// Nivel real de SDA/SCL (PIO_PDSR funciona aunque el pin esté en modo periférico). Con el bus
-// trabado en bajo, cada transacción de Wire tarda ~100 ms en agotar su timeout: 3 lecturas
-// fallidas = 300 ms a ciegas (huecos de 337-400 ms medidos 2026-09-06). Mirando el nivel
-// antes de hablar se detecta el trabón en <5 ms y no se hace ninguna transacción condenada.
-bool i2cLibre(){
-  return (g_APinDescription[20].pPort->PIO_PDSR & g_APinDescription[20].ulPin) &&
-         (g_APinDescription[21].pPort->PIO_PDSR & g_APinDescription[21].ulPin);
+  if(!i2cLibre()) return false;
+  swStart(); bool ok=swWrite(imuAddr<<1) && swWrite(reg);
+  if(ok){ swStart(); ok=swWrite((imuAddr<<1)|1); }
+  if(!ok){ swStop(); return false; }
+  for(uint8_t i=0;i<n;i++) buf[i]=swRead(i+1<n);
+  swStop(); return true;
 }
 bool imuInit(){
   for(uint8_t k=0;k<5 && !i2cLibre();k++) i2cRecuperar();
-  if(!i2cLibre()) return false;            // sigue trabado: reintento en 50 ms, sin gastar timeouts
+  if(!i2cLibre()) return false;            // sigue trabado: reintento en 50 ms
   i2cRecuperar();
-  Wire.begin(); Wire.setClock(100000);   // 100 kHz: cables I2C de ~50 cm, 400 kHz era marginal (2026-09-06)
   for(uint8_t k=0;k<2;k++){
     imuAddr=IMU_ADDRS[k]; uint8_t who=0;
     if(imuRead(0x75,1,&who) && who!=0x00 && who!=0xFF){
@@ -153,8 +163,8 @@ void imuUpdate(){
   }
   if(nowUs-imuReadUs<IMU_PERIODO_US) return;   // 200 Hz: el bus queda libre el 98% del tiempo
   imuReadUs=nowUs;
-  float v=NAN;
-  if(i2cLibre()) v=imuReadGzLSB(); else imuNanSeguidas=2;   // bus trabado: caída inmediata, sin timeout
+  float v=imuReadGzLSB();
+  if(isnan(v)){ i2cRecuperar(); v=imuReadGzLSB(); imuGlitches++; }   // glitch: resincronizar y reintentar (~300 us)
   nowUs=micros();
   if(isnan(v)){
     if(++imuNanSeguidas>=3){ imuOk=false; imuRetryMs=0; imuDownMs=millis(); imuCaidas++;
@@ -228,6 +238,10 @@ void loop(){
       snprintf(b,sizeof(b),"T %ld %ld %ld %ld", q[0], q[1], q[2], q[3]);
     Serial.println(b);
   }
+  static unsigned long lastRep=0;                        // salud del I2C cada 10 s
+  if(now-lastRep>=10000){ lastRep=now; char r[60];
+    snprintf(r,sizeof(r),"R I2C glitches=%lu caidas=%u imu=%s",(unsigned long)imuGlitches,imuCaidas,imuOk?"OK":"NO");
+    Serial.println(r); }
   unsigned long per = moving?150:800;                    // LED: rápido si se mueve
   if(now-lastBlink>=per){ lastBlink=now; digitalWrite(13,!digitalRead(13)); }
 }
