@@ -67,8 +67,10 @@ uint8_t imuAddr=0; bool imuOk=false; uint8_t imuWho=0;
 float gzBias=0.0f;               // LSB
 volatile float yawRad=0.0f;      // rumbo integrado
 float gzRad=0.0f;                // velocidad angular actual (rad/s)
-unsigned long imuLastUs=0, imuStillMs=0, imuRetryMs=0, imuDownMs=0;
-uint16_t imuNanSeguidas=0;
+unsigned long imuLastUs=0, imuStillMs=0, imuRetryMs=0, imuDownMs=0, imuReadUs=0;
+uint16_t imuNanSeguidas=0, imuCaidas=0;
+const unsigned long IMU_PERIODO_US=5000;    // 200 Hz = tasa de muestreo del MPU; leer más rápido solo ocupa el bus
+const unsigned long IMU_REINTENTO_MS=250;   // reintento rápido: un hueco corto no rompe el mapa, uno de 5 s sí
 const float GYRO_LSB_DPS = 131.0f;   // ±250 dps
 
 bool imuWrite(uint8_t reg, uint8_t val){
@@ -82,7 +84,18 @@ bool imuRead(uint8_t reg, uint8_t n, uint8_t*buf){
   for(uint8_t i=0;i<n;i++) buf[i]=Wire.read();
   return true;
 }
+// Recuperación del bus I2C (2026-09-06): un glitch en SDA/SCL (vibración, ruido de los motores en
+// cables de ~50 cm) deja al MPU a mitad de byte y desde ahí responde NACK a todo; Wire.begin() no
+// lo saca de ahí y el IMU quedaba "CAIDO" hasta apagar el robot. 10 pulsos de SCL con SDA suelto
+// + STOP lo resincronizan (comprobado con imu_diag).
+void i2cRecuperar(){
+  pinMode(20,INPUT_PULLUP); pinMode(21,OUTPUT);
+  for(int i=0;i<10;i++){ digitalWrite(21,LOW); delayMicroseconds(10); digitalWrite(21,HIGH); delayMicroseconds(10); }
+  pinMode(20,OUTPUT); digitalWrite(20,LOW); delayMicroseconds(10); digitalWrite(21,HIGH); delayMicroseconds(10);
+  pinMode(20,INPUT_PULLUP); delayMicroseconds(10); pinMode(20,INPUT); pinMode(21,INPUT);
+}
 bool imuInit(){
+  i2cRecuperar();
   Wire.begin(); Wire.setClock(100000);   // 100 kHz: cables I2C de ~50 cm, 400 kHz era marginal (2026-09-06)
   for(uint8_t k=0;k<2;k++){
     imuAddr=IMU_ADDRS[k]; uint8_t who=0;
@@ -106,26 +119,31 @@ void imuCalibrate(){             // robot quieto ~2 s
   if(n>50) gzBias=acc/n;
 }
 void imuUpdate(){
+  unsigned long nowUs=micros();
   if(!imuOk){
-    // reintento en caliente cada 5 s. NO recalibrar: conserva el sesgo bueno del
-    // arranque (recalibrar aquí, con el módulo posiblemente manipulado/en movimiento,
-    // metía deriva — visto 2026-09-03). Solo recalibra si lleva >30 s caído Y quieto.
-    if(millis()-imuRetryMs>5000){
+    // reintento en caliente (inmediato y luego cada 250 ms) con recuperación de bus.
+    // NO recalibrar: conserva el sesgo bueno del arranque (recalibrar aquí, con el módulo
+    // posiblemente manipulado/en movimiento, metía deriva — visto 2026-09-03). Solo
+    // recalibra si lleva >30 s caído Y quieto.
+    if(millis()-imuRetryMs>IMU_REINTENTO_MS){
       imuRetryMs=millis();
       if(imuInit()){
         bool recalibrar = (millis()-imuDownMs>30000) && curL==0 && curR==0;
         if(recalibrar){ delay(300); imuCalibrate(); }
-        imuLastUs=micros(); imuNanSeguidas=0; imuOk=true;
+        imuLastUs=micros(); imuReadUs=imuLastUs; imuNanSeguidas=0; imuOk=true;
         Serial.print(F("R IMU=OK 0x")); Serial.print(imuWho,HEX);
+        Serial.print(F(" tras ")); Serial.print(millis()-imuDownMs); Serial.print(F(" ms"));
         Serial.println(recalibrar?F(" (hotplug+recal)"):F(" (hotplug)"));
       }
     }
     return;
   }
-  float v=imuReadGzLSB(); unsigned long nowUs=micros();
+  if(nowUs-imuReadUs<IMU_PERIODO_US) return;   // 200 Hz: el bus queda libre el 98% del tiempo
+  imuReadUs=nowUs;
+  float v=imuReadGzLSB(); nowUs=micros();
   if(isnan(v)){
-    if(++imuNanSeguidas>100){ imuOk=false; imuRetryMs=millis(); imuDownMs=millis();
-      Serial.println(F("R IMU=CAIDO (vuelvo a encoders)")); }
+    if(++imuNanSeguidas>=5){ imuOk=false; imuRetryMs=0; imuDownMs=millis(); imuCaidas++;
+      Serial.print(F("R IMU=CAIDO #")); Serial.print(imuCaidas); Serial.println(F(" (mantengo rumbo, reintento)")); }
     return;
   }
   imuNanSeguidas=0;

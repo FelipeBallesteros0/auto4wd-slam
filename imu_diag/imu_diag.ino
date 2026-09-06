@@ -48,6 +48,13 @@ void testPuente(){
   Serial.print(F("  puente SDA-SCL: bajo20->21=")); Serial.print(a); Serial.print(F(" bajo21->20=")); Serial.print(b);
   Serial.println((a==1&&b==1)?F("  -> NO hay puente"):F("  -> ¡SDA y SCL UNIDOS! (soldadura)"));
 }
+// Recuperación de bus I2C: 10 pulsos de SCL con SDA suelto + STOP (libera un esclavo colgado con SDA en bajo)
+void busRecover(){
+  pinMode(20,INPUT_PULLUP); pinMode(21,OUTPUT);
+  for(int i=0;i<10;i++){ digitalWrite(21,LOW); delayMicroseconds(10); digitalWrite(21,HIGH); delayMicroseconds(10); }
+  pinMode(20,OUTPUT); digitalWrite(20,LOW); delayMicroseconds(10); digitalWrite(21,HIGH); delayMicroseconds(10);
+  pinMode(20,INPUT_PULLUP); delayMicroseconds(10); pinMode(20,INPUT); pinMode(21,INPUT);
+}
 void setup(){ Serial.begin(115200); delay(1500); Serial.println(F("== imu_diag ==")); }
 void loop(){
   for(int i=0;i<4;i++) pinMode(PINS[i],INPUT);
@@ -63,5 +70,6 @@ void loop(){
   Serial.println(b);
   char t[64]; testDrive(20,t); Serial.print(F("  ")); Serial.print(t); testDrive(21,t); Serial.print(F(" | ")); Serial.println(t);
   testWire(); testPuente();
+  busRecover(); Serial.print(F("  tras recuperar bus ->")); testWire();
   delay(1500);
 }
