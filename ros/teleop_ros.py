@@ -20,7 +20,10 @@ TICKS_PER_REV = 994.0     # calibrado 2026-08-30: 1 vuelta a mano = 994 cuentas 
 # los encoders daban -7,2%. Escala medida = 1.0773 (equivale a Ø efectivo 70,0 mm).
 CAL_ESCALA = 1.0773
 M_PER_TICK = math.pi * WHEEL_D / TICKS_PER_REV * CAL_ESCALA
-LASER_XY_YAW = (0.0, 0.0, 0.10, 0.0)   # x, y, z, yaw del lidar respecto a base_link
+# Medido 2026-09-06 con un objeto a 20 cm: al FRENTE del robot el lidar lo ve a -178°, a la
+# IZQUIERDA a -90° => el cero del lidar apunta hacia atrás (yaw 180°), sin espejo. Con yaw=0 el
+# SLAM recibía cada scan rotado 180° y las traslaciones salían al revés (mapa "en estrella").
+LASER_XY_YAW = (0.0, 0.0, 0.10, math.pi)   # x, y, z, yaw del lidar respecto a base_link
 
 # ---- mando ----
 JS_DEV="/dev/input/js0"; EV_FMT="IhBB"; EV_SIZE=struct.calcsize(EV_FMT)
