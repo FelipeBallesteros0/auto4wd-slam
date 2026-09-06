@@ -35,3 +35,25 @@ Posiciones vistas desde arriba ("superior" = delantera, "inferior" = trasera):
 - Lado IZQUIERDO = M1+M2 · lado DERECHO = M3+M4 (útil para skid-steer).
 - Confirmado visualmente: con la convención v4 (PWM en pin "ADELANTE"), las 4 ruedas avanzan y los 4 encoders cuentan positivo.
 
+
+## Re-cableado 2026-09-06 (Felipe cambió el orden de pines PWM y de encoders)
+Método: (1) sketch `mapeo_encoders` comando `r` → qué encoder responde a cada par PWM y con qué
+signo; (2) ruedas giradas **a mano hacia adelante** en orden DI→TI→DD→TD con el monitor `CNT` →
+qué encoder es cada rueda y su signo al avanzar; (3) firmware nuevo + `test_adelante.py` (V 70 70,
+2 s): fl rl fr rr = +3506 +3610 +3573 +3550 ⇒ los 4 positivos y parejos.
+
+| Rueda | PWM {atrás, ADELANTE} | Encoder (A,B) | Signo bruto al avanzar | ENC_SIGN |
+|---|---|---|---|---|
+| Delantera izquierda | {12, **11**} | E1 (22,23) | + | +1 |
+| Trasera izquierda   | { 8, **7**}  | E3 (26,27) | + | +1 |
+| Delantera derecha   | { 9, **10**} | E2 (24,25) | − | −1 |
+| Trasera derecha     | { 5, **6**}  | E4 (28,29) | − | −1 |
+
+- El firmware (v3.2) ahora indexa **por rueda** en el orden de la telemetría (0=DI 1=TI 2=DD 3=TD);
+  desapareció `ENC_DE_MOTOR` y entró `ENC_SIGN` (el lado derecho cuenta al revés por espejo).
+- Herramientas en la Pi (`~/teleop/`): `serial_cmd.py <chars> <seg> [espera] [pausa]` para hablar
+  con el sketch de mapeo (`r`, `i`=escaneo I2C, `1-4`, `a`, `z`), `test_adelante.py [pwm] [seg]`
+  para verificar el firmware teleop, `enc_live.log` del monitor a mano.
+- Fallas encontradas por el camino: pin 22 (canal A de E1) suelto; motores de 5/6 y 11/12 sin
+  girar hasta reasentar cables; el Due se desconectaba del USB ~20 veces mientras se manipulaba
+  el robot (cable USB flojo). **IMU: sigue sin aparecer en I2C (SDA=20/SCL=21).**

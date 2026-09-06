@@ -8,14 +8,19 @@
  * Watchdog: sin comando válido por 300 ms => motores a cero.
  * IMU MPU-9250 (I2C 20/21, 3.3V): gyro Z -> rumbo integrado (yaw). Telemetría:
  *   "T <fl> <rl> <fr> <rr> <yaw_mrad> <gz_mrad_s>"  (los 2 últimos solo si IMU OK)
- * Convención confirmada 2026-08-30: ADELANTE = PWM en el 2º pin del par; encoder adelante=+.
- * M1(5,6)=del.izq  M2(7,8)=tras.izq  M3(9,10)=del.der  M4(11,12)=tras.der
- * Encoders: M1↔E4(28,29)  M2↔E3(26,27)  M3↔E2(24,25)  M4↔E1(22,23)
+ * Re-cableado 2026-09-06 (Felipe cambió pines PWM y encoders). Tablas POR RUEDA, en el
+ * mismo orden que la telemetría: 0=del.izq 1=tras.izq 2=del.der 3=tras.der.
+ *   Rueda      PWM {atrás, ADELANTE}   Encoder (A,B)   signo al avanzar (medido a mano)
+ *   del.izq    {12, 11}                 (22,23)         +
+ *   tras.izq   { 8,  7}                 (26,27)         +
+ *   del.der    { 9, 10}                 (24,25)         −   (lado derecho espejado)
+ *   tras.der   { 5,  6}                 (28,29)         −
+ * ENC_SIGN compensa el espejo: los 4 encoders cuentan + al avanzar.
  */
 #include <Wire.h>
-const uint8_t MPIN[4][2] = {{5,6},{7,8},{9,10},{11,12}};   // {atras, adelante}
-const uint8_t EPIN[4][2] = {{22,23},{24,25},{26,27},{28,29}};
-const int8_t  ENC_DE_MOTOR[4] = {3, 2, 1, 0};              // M1->E4, M2->E3, M3->E2, M4->E1
+const uint8_t MPIN[4][2] = {{12,11},{8,7},{9,10},{5,6}};   // {atras, adelante} por rueda
+const uint8_t EPIN[4][2] = {{22,23},{26,27},{24,25},{28,29}};
+const int8_t  ENC_SIGN[4] = {+1,+1,-1,-1};                 // adelante = + en los 4
 
 volatile long quadPos[4]; volatile uint8_t encPrev[4];
 // Lectura DIRECTA de puertos en la ISR: digitalRead era tan lento que a velocidad
@@ -41,7 +46,7 @@ void TC0_Handler(){
   for(uint8_t k=0;k<4;k++){
     uint8_t a=(encPort[k][0]->PIO_PDSR & encMask[k][0])?1:0;
     uint8_t b=(encPort[k][1]->PIO_PDSR & encMask[k][1])?1:0;
-    uint8_t st=(a<<1)|b; quadPos[k]-=QDEC[encPrev[k]][st]; encPrev[k]=st;  // adelante = +
+    uint8_t st=(a<<1)|b; quadPos[k]-=ENC_SIGN[k]*QDEC[encPrev[k]][st]; encPrev[k]=st;  // adelante = +
   }
 }
 
@@ -139,8 +144,8 @@ void imuUpdate(){
 
 void applyLR(int l,int r){
   curL=l; curR=r; moving=(l!=0||r!=0);
-  motorSet(0,l); motorSet(1,l);   // izquierda: M1 M2
-  motorSet(2,r); motorSet(3,r);   // derecha:  M3 M4
+  motorSet(0,l); motorSet(1,l);   // izquierda: del.izq tras.izq
+  motorSet(2,r); motorSet(3,r);   // derecha:   del.der tras.der
 }
 void procLine(){
   line[ll]=0;
@@ -185,11 +190,9 @@ void loop(){
     char b[110];
     if(imuOk)
       snprintf(b,sizeof(b),"T %ld %ld %ld %ld %ld %ld",
-        q[ENC_DE_MOTOR[0]], q[ENC_DE_MOTOR[1]], q[ENC_DE_MOTOR[2]], q[ENC_DE_MOTOR[3]],
-        (long)(yawRad*1000.0f), (long)(gzRad*1000.0f));
+        q[0], q[1], q[2], q[3], (long)(yawRad*1000.0f), (long)(gzRad*1000.0f));
     else
-      snprintf(b,sizeof(b),"T %ld %ld %ld %ld",
-        q[ENC_DE_MOTOR[0]], q[ENC_DE_MOTOR[1]], q[ENC_DE_MOTOR[2]], q[ENC_DE_MOTOR[3]]);
+      snprintf(b,sizeof(b),"T %ld %ld %ld %ld", q[0], q[1], q[2], q[3]);
     Serial.println(b);
   }
   unsigned long per = moving?150:800;                    // LED: rápido si se mueve

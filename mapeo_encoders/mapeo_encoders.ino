@@ -11,6 +11,7 @@
  * Con el robot ELEVADO (ruedas al aire). Serial 115200 (Puerto de Programación).
  */
 
+#include <Wire.h>
 const uint8_t MPIN[4][2] = {{5,6},{7,8},{9,10},{11,12}};
 const uint8_t EPIN[4][2] = {{22,23},{24,25},{26,27},{28,29}};
 
@@ -118,6 +119,30 @@ void probeMotor(uint8_t m){
   else                Serial.println(F("NO (solo 1 canal cuenta)"));
 }
 
+// ---- escáner I2C (comando 'i'): ¿está el MPU-9250 en el bus? ----
+void i2cScanBus(TwoWire &w, const char*nombre){
+  Serial.print(F("  bus ")); Serial.print(nombre); Serial.print(F(": "));
+  int n=0;
+  for(uint8_t a=8;a<120;a++){
+    w.beginTransmission(a);
+    if(w.endTransmission()==0){
+      n++; Serial.print(F("0x")); Serial.print(a,HEX);
+      w.beginTransmission(a); w.write(0x75);
+      if(w.endTransmission(false)==0 && w.requestFrom((int)a,1)==1){
+        Serial.print(F("(WHO_AM_I=0x")); Serial.print(w.read(),HEX); Serial.print(')');
+      }
+      Serial.print(' ');
+    }
+  }
+  if(!n) Serial.print(F("(nada)"));
+  Serial.println();
+}
+void i2cScan(){
+  Serial.println(F("[I2C] escaneo (MPU-9250 esperado en 0x68 o 0x69, WHO_AM_I 0x71/0x73):"));
+  i2cScanBus(Wire,"Wire SDA=20/SCL=21");
+  i2cScanBus(Wire1,"Wire1 SDA1/SCL1");
+}
+
 void printSummary(){
   Serial.println(F("\n########## RESUMEN MAPEO rueda<->encoder ##########"));
   Serial.println(F("Motor(pines)   ->  Encoder(pines)   sentido+"));
@@ -165,7 +190,9 @@ void setup(){
   while(!Serial && millis()-t0<3000) { }
   delay(1500);
   Serial.println(F("\n== mapeo_encoders (Arduino Due) listo =="));
-  Serial.println(F("comandos: r=mapeo  a=todas adelante 4s  1-4=solo ese motor 2s  m=resumen  z=cero"));
+  Serial.println(F("comandos: r=mapeo  a=todas adelante 4s  1-4=solo ese motor 2s  m=resumen  z=cero  i=escaneo I2C"));
+  Wire.begin(); Wire.setClock(100000); Wire1.begin(); Wire1.setClock(100000);
+  i2cScan();
 }
 
 void printLive(){
@@ -187,6 +214,7 @@ void loop(){
     if(c=='r'||c=='R') runMapping();       // repetir mapeo con motores
     if(c=='z'||c=='Z'){ resetCounts(); Serial.println(F("[contadores a cero]")); }
     if(c=='m'||c=='M') printSummary();     // resumen bajo demanda
+    if(c=='i'||c=='I') i2cScan();          // ¿aparece el MPU en el bus?
     if(c=='a'||c=='A'){                    // todas adelante 4 s
       Serial.println(F("[TODAS ADELANTE 4 s, PWM 90]"));
       resetCounts();
