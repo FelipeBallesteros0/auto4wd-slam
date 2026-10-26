@@ -28,7 +28,25 @@ Es un proyecto personal, no un producto. No navega solo: tú lo manejas y el map
 **Regla de oro:** motores y computador nunca comparten el riel de alimentación. Con un riel común, el pico de
 arranque de los cuatro motores hunde el voltaje y la Pi se reinicia apenas aceleras.
 
-Diagramas de cableado: en [`docs/cableado/`](docs/cableado/).
+## Cableado
+
+Cuatro diagramas, uno por subsistema (PNG + `.fzz` de Fritzing en [`docs/cableado/`](docs/cableado/)):
+
+| | |
+| --- | --- |
+| ![Energía](docs/cableado/energia.png) | **Energía** — pack 4×18650 → step-down de 300 W (12 V) → los cuatro BTS7960 → motores; un segundo step-down con salida USB-C alimenta la Pi |
+| ![Motores](docs/cableado/motores.png) | **Motores** — dos pines PWM por rueda (adelante / atrás) del Due a cada BTS7960; 5 V, GND y los dos enable |
+| ![Encoders](docs/cableado/encoders.png) | **Encoders** — canales A/B de los cuatro motores en los pines 22–29 del Due |
+| ![Sensores](docs/cableado/sensores.png) | **Sensores** — MPU-9250 por I²C (pines 20/21); el Due y el lidar van a la Pi por USB |
+
+Asignación de pines (de `teleop_due/teleop_due.ino`):
+
+| Rueda | PWM {atrás, adelante} | Encoder (A, B) |
+| --- | --- | --- |
+| delantera izquierda | 12, 11 | 22, 23 |
+| trasera izquierda | 8, 7 | 26, 27 |
+| delantera derecha | 9, 10 | 24, 25 |
+| trasera derecha | 5, 6 | 28, 29 |
 
 ## Software
 

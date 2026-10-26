@@ -27,7 +27,25 @@ It is a hobby project, not a product: there is no autonomous navigation, you dri
 **Golden rule:** motors and computer never share a supply rail. With a common rail, the inrush of four motors
 starting at once browns out the Pi and it reboots the moment you accelerate.
 
-Wiring diagrams: see [`docs/cableado/`](docs/cableado/).
+## Wiring
+
+Four diagrams, one per subsystem (PNG + Fritzing `.fzz` in [`docs/cableado/`](docs/cableado/)):
+
+| | |
+| --- | --- |
+| ![Power](docs/cableado/energia.png) | **Power** — 4×18650 pack → 300 W step-down (12 V) → the four BTS7960 → motors; a second step-down with USB-C output feeds the Pi |
+| ![Motors](docs/cableado/motores.png) | **Motors** — two PWM pins per wheel (forward / reverse) from the Due to each BTS7960; 5 V, GND and both enables |
+| ![Encoders](docs/cableado/encoders.png) | **Encoders** — channels A/B of the four motors on Due pins 22–29 |
+| ![Sensors](docs/cableado/sensores.png) | **Sensors** — MPU-9250 on I²C (pins 20/21); the Due and the lidar go to the Pi over USB |
+
+Pin assignment (from `teleop_due/teleop_due.ino`):
+
+| Wheel | PWM {reverse, forward} | Encoder (A, B) |
+| --- | --- | --- |
+| front left | 12, 11 | 22, 23 |
+| rear left | 8, 7 | 26, 27 |
+| front right | 9, 10 | 24, 25 |
+| rear right | 5, 6 | 28, 29 |
 
 ## Software
 
