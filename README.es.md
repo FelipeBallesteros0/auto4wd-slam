@@ -18,7 +18,7 @@ Es un proyecto personal, no un producto. No navega solo: tú lo manejas y el map
 | 4 puentes H BTS7960 | uno por rueda; IN1/IN2 los dos con PWM (el sentido lo da cuál de los dos lleva el PWM) |
 | Step-down de 300 W | batería → 12 V para los motores |
 | Step-down con salida USB-C | batería → 5 V para la Raspberry Pi |
-| 4 pilas 18650 de litio (Samsung INR18650, 2600 mAh) | el pack de batería |
+| 4 pilas 18650 de litio (Samsung ICR18650-26J, 2600 mAh) | el pack de batería |
 | Arduino Due | motores, encoders (8 pines con interrupción: por eso el Due) e IMU |
 | IMU MPU-9250 por I²C | el giroscopio Z da la rotación (al girar, las ruedas patinan y los encoders mienten) |
 | Raspberry Pi 5 (8 GB), Ubuntu 24.04 + ROS 2 Jazzy | nodo de odometría, driver del lidar, SLAM y puente de Foxglove |

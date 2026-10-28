@@ -17,7 +17,7 @@ It is a hobby project, not a product: there is no autonomous navigation, you dri
 | 4× BTS7960 H-bridges | one per wheel; IN1/IN2 both driven with PWM (direction = which pin carries the PWM) |
 | 300 W step-down converter | battery → 12 V for the motors |
 | Step-down converter with USB-C output | battery → 5 V for the Raspberry Pi |
-| 4× 18650 Li-ion cells (Samsung INR18650, 2600 mAh) | the battery pack |
+| 4× 18650 Li-ion cells (Samsung ICR18650-26J, 2600 mAh) | the battery pack |
 | Arduino Due | motors, encoders (8 interrupt-capable pins — the reason for picking the Due) and the IMU |
 | MPU-9250 IMU on I²C | gyro Z for rotation (skid-steer wheels slip when turning, encoders lie) |
 | Raspberry Pi 5 (8 GB), Ubuntu 24.04 + ROS 2 Jazzy | odometry node, lidar driver, SLAM, Foxglove bridge |
