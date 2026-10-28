@@ -48,6 +48,8 @@ Asignación de pines (de `teleop_due/teleop_due.ino`):
 | delantera derecha | 9, 10 | 24, 25 |
 | trasera derecha | 5, 6 | 28, 29 |
 
+En los diagramas el pin «adelante» va a RPWM y el «atrás» a LPWM. Qué sentido es «adelante» depende de cómo atornilles los cables del motor al puente: si una rueda gira al revés, intercambia esos dos cables del motor (o los dos PWM).
+
 ## Software
 
 ```
@@ -64,7 +66,6 @@ foxglove_bridge (ws://<robot>.local:8765) --> Foxglove en el PC
 | `ros/slam_params.yaml` | parámetros de `slam_toolbox` (celdas de 5 cm, mapa cada 0,5 s) |
 | `ros/layout_robot.json` | layout de Foxglove: panel 3D con `/map`, `/scan` y `/odom`, cámara siguiendo al auto |
 | `ros/50-cloud-init.yaml`, `ros/network-config` | ejemplo de netplan con WiFi de la casa + hotspot del celular (valores de ejemplo) |
-| `rpi/odom_encoders.py` | nodo de demostración: odometría solo con encoders en `/odom_enc`, para compararla con el giroscopio |
 | `rpi/` (resto) | diagnóstico: volcar el mapa a PGM, scan sobre el mapa, prueba de orientación del lidar, consola serie, prueba en línea recta |
 | `mapeo_encoders/`, `i2c_*`, `imu_diag/`, `test_blink/` | sketches de puesta en marcha: mapeo rueda↔encoder, escáneres I²C, diagnóstico del IMU |
 | `analiza2m.py`, `MAPEO_RESULTADO.md` | análisis de la calibración de odometría y tabla de pines ruedas/encoders |

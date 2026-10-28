@@ -47,6 +47,8 @@ Pin assignment (from `teleop_due/teleop_due.ino`):
 | front right | 9, 10 | 24, 25 |
 | rear right | 5, 6 | 28, 29 |
 
+In the diagrams the «forward» pin goes to RPWM and «reverse» to LPWM. Which way is «forward» depends on how the motor leads are screwed into the bridge: if a wheel spins backwards, swap those two motor leads (or the two PWM pins).
+
 ## Software
 
 ```
@@ -63,7 +65,6 @@ foxglove_bridge (ws://<robot>.local:8765) --> Foxglove on the PC
 | `ros/slam_params.yaml` | `slam_toolbox` parameters (5 cm cells, map update every 0.5 s) |
 | `ros/layout_robot.json` | Foxglove layout: 3D panel with `/map`, `/scan` and `/odom`, camera following the robot |
 | `ros/50-cloud-init.yaml`, `ros/network-config` | netplan example with home Wi-Fi + phone hotspot (placeholders) |
-| `rpi/odom_encoders.py` | demo node: encoder-only odometry on `/odom_enc`, to compare with the gyro |
 | `rpi/` (rest) | diagnostics: map dump to PGM, scan/map overlay, lidar orientation test, serial console, straight-line test |
 | `mapeo_encoders/`, `i2c_*`, `imu_diag/`, `test_blink/` | bring-up sketches: wheel↔encoder mapping, I²C scanners, IMU diagnostics |
 | `analiza2m.py`, `MAPEO_RESULTADO.md` | odometry calibration analysis and the wheel/encoder pin table |
